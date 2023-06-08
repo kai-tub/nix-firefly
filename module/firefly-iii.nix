@@ -49,10 +49,37 @@ in
       description = ''
         The root URL that you want to host Firefly III on. All URLs in Firefly III will be generated using this value.
       '';
-      default = "http${optionalString cfg.tlsEnabled "s"}://${cfg.hostname}";
-      defaultText = ''http''${optionalString tlsEnabled "s"}://''${cfg.hostname}'';
+      # default = "http${optionalString cfg.tlsEnabled "s"}://${cfg.hostname}";
+      # defaultText = ''http''${optionalString tlsEnabled "s"}://''${cfg.hostname}'';
       example = "https://example.com";
       type = types.str;
+    };
+
+    # Should be similar to NGINX, where it load the options from the
+    # `virtualHosts` option 1
+    caddyConfig = mkOption {
+      description = ''
+        Additional lines of configuration appended to the automatically
+        generated `Caddyfile`.
+      '';
+      default = ''
+        root * "${firefly-iii}/public"
+        php_fastcgi unix/${config.services.phpfpm.pools."firefly-iii".socket}
+        # encode gzip
+        # file_server
+      '';
+      type = types.lines;
+    };
+
+    caddyConfigExtra = mkOption {
+      description = ''
+        Appended to `caddyConfig`
+      '';
+      default = ''
+        encode gzip
+        file_server
+      '';
+      type = types.lines;
     };
 
     appKeyFile = mkOption {
@@ -83,23 +110,25 @@ in
     };
 
     # Reverse proxy
-    hostname = mkOption {
-      type = types.str;
-      default =
-        if config.networking.domain != null then
-          config.networking.fqdn
-        else
-          config.networking.hostName;
-      defaultText = literalExpression "config.networking.fqdn";
-      example = "firefly.example.com";
-      description = "The hostname to serve Firefly III on.";
-    };
+    # is this really required for caddy?
+    # shouldn't all of this be derived from the appURL?
+    # hostname = mkOption {
+    #   type = types.str;
+    #   default =
+    #     if config.networking.domain != null then
+    #       config.networking.fqdn
+    #     else
+    #       config.networking.hostName;
+    #   defaultText = literalExpression "config.networking.fqdn";
+    #   example = "firefly.example.com";
+    #   description = "The hostname to serve Firefly III on.";
+    # };
 
-    tlsEnabled = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Whether or not TLS is used";
-    };
+    # tlsEnabled = mkOption {
+    #   type = types.bool;
+    #   default = false;
+    #   description = "Whether or not TLS is used";
+    # };
 
     # nginx = mkOption {
     #   type = types.submodule (
@@ -229,8 +258,8 @@ in
       };
       from = mkOption {
         type = types.str;
-        default = "firefly@${cfg.hostname}";
-        defaultText = ''firefly@''${cfg.hostname}'';
+        default = "firefly@server";
+        # defaultText = ''firefly@''${cfg.hostname}'';
         example = "firefly@example.com";
         description = "Mail \"from\" address";
       };
@@ -325,20 +354,14 @@ in
       # recommendedTlsSettings = true;
       # recommendedOptimisation = true;
       # recommendedGzipSettings = true;
-      virtualHosts."${optionalString (!cfg.tlsEnabled) "http://"}${cfg.hostname}" =
+      # virtualHosts."${optionalString (!cfg.tlsEnabled) "http://"}${cfg.hostname}" =
+
+      # auto-strip https from caddy config!
+      virtualHosts.${builtins.replaceStrings [ "https" ] [ "" ] cfg.appURL} =
         # mkMerge [
         #   cfg.nginx
         {
-          extraConfig = ''
-            encode gzip
-            root * "${firefly-iii}/public"
-            php_fastcgi unix/${config.services.phpfpm.pools."firefly-iii".socket}
-            log {
-              output file /var/log/caddy/out.log
-            }
-            file_server
-
-          '';
+          extraConfig = builtins.concatStringsSep "\n" [ cfg.caddyConfig cfg.caddyConfigExtra ];
           # header (.js|.css|.gif|.png|.ico|.jpg|.jpeg)$ {
           #   Cache-Control "public, max-age=31536000"
           # }

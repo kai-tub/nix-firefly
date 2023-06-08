@@ -15,6 +15,7 @@
           enable = true;
           appKeyFile = "/etc/firefly-iii/appkey";
           database.createLocally = true;
+          appURL = "http://server";
         };
       };
       # `hostname=server` => appURL == http://server/
