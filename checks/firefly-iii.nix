@@ -3,7 +3,7 @@
     with import (nixpkgs + "/nixos/lib/testing-python.nix") { inherit system; };
     makeTest {
       name = "firefly-iii-integration-test";
-      nodes.server = { ... }: {
+      nodes.server = { config, ... }: {
         imports = [ self.nixosModules.firefly-iii ];
         nixpkgs.overlays = [ self.overlays.default ];
         environment = {
@@ -17,11 +17,12 @@
           database.createLocally = true;
         };
       };
+      # `hostname=server` => appURL == http://server/
       testScript = ''
         server.start()
         server.wait_for_unit("phpfpm-firefly-iii.service")
         server.wait_for_open_port(80)
-        server.succeed("curl --fail http://127.0.0.1:80/install 2> /dev/null | grep 'Firefly III'")
+        server.succeed("curl --fail http://server/install 2> /dev/null | grep 'Firefly III'")
         server.shutdown()
       '';
     };

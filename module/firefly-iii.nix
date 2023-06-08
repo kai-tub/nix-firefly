@@ -17,7 +17,9 @@ let
   defaultUser = "firefly-iii";
   defaultGroup = defaultUser;
 
-  tlsEnabled = cfg.nginx.addSSL || cfg.nginx.forceSSL || cfg.nginx.onlySSL || cfg.nginx.enableACME;
+  # should include option to overwrite the value, as it isn't so clear with caddy if it is used or not
+  # tlsEnabled = cfg.nginx.addSSL || cfg.nginx.forceSSL || cfg.nginx.onlySSL || cfg.nginx.enableACME;
+  # tlsEnabled = false;
 
   # shell script for local administration
   artisan = pkgs.writeScriptBin "firefly-iii" ''
@@ -47,7 +49,7 @@ in
       description = ''
         The root URL that you want to host Firefly III on. All URLs in Firefly III will be generated using this value.
       '';
-      default = "http${optionalString tlsEnabled "s"}://${cfg.hostname}";
+      default = "http${optionalString cfg.tlsEnabled "s"}://${cfg.hostname}";
       defaultText = ''http''${optionalString tlsEnabled "s"}://''${cfg.hostname}'';
       example = "https://example.com";
       type = types.str;
@@ -93,26 +95,32 @@ in
       description = "The hostname to serve Firefly III on.";
     };
 
-    nginx = mkOption {
-      type = types.submodule (
-        recursiveUpdate
-          (import "${nixpkgs}/nixos/modules/services/web-servers/nginx/vhost-options.nix" { inherit config lib; })
-          { }
-      );
-      default = { };
-      example = literalExpression ''
-        {
-          serverAliases = [
-            "firefly.''${config.networking.domain}"
-          ];
-
-          # To enable encryption and let Let's Encrypt take care of certificate
-          forceSSL = true;
-          enableACME = true;
-        }
-      '';
-      description = "With this option, you can customize the nginx virtualHost settings.";
+    tlsEnabled = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Whether or not TLS is used";
     };
+
+    # nginx = mkOption {
+    #   type = types.submodule (
+    #     recursiveUpdate
+    #       (import "${nixpkgs}/nixos/modules/services/web-servers/nginx/vhost-options.nix" { inherit config lib; })
+    #       { }
+    #   );
+    #   default = { };
+    #   example = literalExpression ''
+    #     {
+    #       serverAliases = [
+    #         "firefly.''${config.networking.domain}"
+    #       ];
+
+    #       # To enable encryption and let Let's Encrypt take care of certificate
+    #       forceSSL = true;
+    #       enableACME = true;
+    #     }
+    #   '';
+    #   description = "With this option, you can customize the nginx virtualHost settings.";
+    # };
 
     # Config
     config = mkOption {
@@ -312,29 +320,35 @@ in
     };
 
     # Reverse proxy
-    services.nginx = {
+    services.caddy = {
       enable = mkDefault true;
-      recommendedTlsSettings = true;
-      recommendedOptimisation = true;
-      recommendedGzipSettings = true;
-      virtualHosts.${cfg.hostname} = mkMerge [
-        cfg.nginx
+      # recommendedTlsSettings = true;
+      # recommendedOptimisation = true;
+      # recommendedGzipSettings = true;
+      virtualHosts."${optionalString (!cfg.tlsEnabled) "http://"}${cfg.hostname}" =
+        # mkMerge [
+        #   cfg.nginx
         {
-          root = mkForce "${firefly-iii}/public";
-          locations = {
-            "/" = {
-              index = "index.php";
-              tryFiles = "$uri $uri/ /index.php?$query_string";
-            };
-            "~ \.php$".extraConfig = ''
-              fastcgi_pass unix:${config.services.phpfpm.pools."firefly-iii".socket};
-            '';
-            "~ \.(js|css|gif|png|ico|jpg|jpeg)$" = {
-              extraConfig = "expires 365d;";
-            };
-          };
-        }
-      ];
+          extraConfig = ''
+            encode gzip
+            root * "${firefly-iii}/public"
+            php_fastcgi unix/${config.services.phpfpm.pools."firefly-iii".socket}
+            log {
+              output file /var/log/caddy/out.log
+            }
+            file_server
+
+          '';
+          # header (.js|.css|.gif|.png|.ico|.jpg|.jpeg)$ {
+          #   Cache-Control "public, max-age=31536000"
+          # }
+          # header might be invalid
+          #   "~ \.(js|css|gif|png|ico|jpg|jpeg)$" = {
+          #     extraConfig = "expires 365d;";
+          #   };
+          # };
+        };
+      # ];
     };
 
     # Config
@@ -433,7 +447,8 @@ in
           inherit group;
           isSystemUser = true;
         };
-        "${config.services.nginx.user}".extraGroups = [ group ];
+        # "${config.services.nginx.user}".extraGroups = [ group ];
+        "${config.services.caddy.user}".extraGroups = [ group ];
       };
       groups = mkIf (group == defaultGroup) {
         ${defaultGroup} = { };
